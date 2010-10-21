@@ -10,51 +10,34 @@ use Sys::Hostname;
 use POSIX qw(:sys_wait_h); 
 
 my $i_port=shift @ARGV || 7000;
-my $i_respfile=shift @ARGV || 'resp_file.txt';
+my $i_configfile=shift @ARGV || 'config_file.txt';
 my $fh; #file handler for output
-my $response;
 
-my $devices={};
+my $servers={};
 
-open ($fh,'<',$i_respfile) or die $!; # Open a file for reading or exit with an error message
-while (<$fh>) {$response .= $_ };
-$response='STANDART RESPONSE' unless defined($response);
-sub REAP { 1 until (-1 == waitpid(-1, WNOHANG)); $SIG{CHLD} = \&REAP; }
-$SIG{CHLD} = \&REAP; 
-my $sock = new IO::Socket::INET( 
-         LocalHost => 'localhost', 
-         LocalPort => $i_port, 
-        Listen => SOMAXCONN, 
-        Proto => 'tcp', 
-        Reuse => 1); 
-$sock or die "no socket :$!"; 
-STDOUT->autoflush(1); 
-my($new_sock, $buf, $kid); 
-print "Main server awiting orders at 'localhost' port $i_port ...\n";
-while ($new_sock = $sock->accept()) { 
- # execute a fork, if this is # the parent, its work is done, 
- # go straight to continue 
- next if $kid = fork; 
- die "fork: $!" unless defined $kid; 
- # child now... 
- # close the server - not needed 
- close $sock; 
- while (defined($buf = <$new_sock>)) { 
-  chop $buf; 
-  foreach ($buf) { 
-   /^HELLO$/ and print($new_sock "Hi\n"), last; 
-   /^NAME$/ and print($new_sock hostname(),"\n"), last; 
-   /^DATE$/ and print($new_sock scalar(localtime), "\n"), last;
-	/^list$/i and list_all_devices;
-   # default case: 
-   print $new_sock $response; 
-  } 
- } 
- exit; 
-} continue { # parent closes the client since # it is not needed 
- close $new_sock; 
+$servers=read_main_config($i_configfile);
+die "No servers found in config" if !defined($servers) || scalar(keys %$servers)<1;
+
+
+for my $child_server (keys %$servers){
+	my $child_pid=open(CHILDHANDLE,"|-");
+	if ($child_pid){
+		$SIG{INT}=\&parent_got_message;
+		print CHILDHANDLE "$$";
+		$servers->{$child_server}->{pid}=$child_pid;
+		$servers->{$child_server}->{handle}=CHILDHANDLE;
+	}else{ # in child forked process.
+		my $parent_pid=0;
+		chomp($parent_id=<>);
+		$servers{$child_server}->{parent_pid}=$parent_pid;
+		child_process_server($child_server,$servers->{$child_server});
+		exit();
+	}
+
 }
-
+sub parent_got_message
+{
+}
 sub read_main_config
 {
 	my $config_file=shift || "main_config.dat";
@@ -72,10 +55,10 @@ sub read_main_config
 }
 
 # this function will expect parameter as:
-# 0(default) - list all (active unactive) devices
-# 1 - list only active devices
-# 2 - list only inactive devices
-sub list_all_devices
+# 0(default) - list all (active unactive) servers
+# 1 - list only active servers
+# 2 - list only inactive servers
+sub parent_list_all_servers
 { 
 	my $type=shift || 0;
 	my $devices=shift;
@@ -85,6 +68,15 @@ sub list_all_devices
 				if ($data->{status}==$type || $type ==0);
 	}
 }
-
-
-
+sub child_sigint
+{
+}
+sub child_sigquit
+{
+}
+sub child_process_server
+{
+	$SIG{SIGINT}=\&child_sigint; #will answe to parent with alive message
+	$SIG{SIGQUIT}=\&child_sigquit; # will raise an exit from child process
+	
+}
