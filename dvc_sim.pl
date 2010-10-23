@@ -11,7 +11,7 @@ use POSIX qw(:sys_wait_h strftime);
 #use LWP::Socket
 
 my $i_port=shift @ARGV || 7000;
-my $i_configfile=shift @ARGV || 'config_file.txt';
+my $i_configfile=shift @ARGV || 'config_file.dat';
 my $fh; #file handler for output
 
 my $logfile;
