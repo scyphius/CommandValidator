@@ -51,7 +51,7 @@ main_process($i_port);
 sub logmsg
 {
 	my $file_handler=shift ||return; 
-	print $file_handler "Pid=[$$],msg'@_'\n";
+	print $file_handler "Pid=[$$],msg '@_'\n";
 }
 # this process will be executed after starting all active child servers and will be awaiting for following commands:
 # LIST - will return list all running servers
@@ -69,7 +69,7 @@ sub main_process{
 	bind (main_Server,sockaddr_in($main_port, INADDR_ANY))			||die "main:bind: $!";
 	listen(main_Server,SOMAXCONN)								||die "main:listen $!";
 
-	print "main server started at $main_port";
+	print "main server started at $main_port\n";
 
 	my $main_paddr;
 
@@ -78,9 +78,24 @@ sub main_process{
 		my $cli_name=gethostbyaddr($iaddr,AF_INET);
 		print "got connection from $cli_name\n";
 		my $main_command=<main_Client>;
+		#chomp $main_command;
 		print "got command ($main_command) from $cli_name. going to execute\n";
+		my $response=main_conversation($main_command);
+		if (defined($response)){
+			print main_Client $response ;
+			print "main: response : '$response'\n";
+		}else {
+			print main_Client "UNRECOGNIZED";
+			warn "main: command '$main_command' is UNRECOGNIZED"
+		}
 	}
 
+}
+sub main_conversation{
+	my $command=shift || return undef;
+	return 'OLLEH' if $command =~ /^HELLO$/;
+
+	return undef; # default if unrecognized  command
 }
 sub parent_got_message
 {
@@ -156,7 +171,7 @@ sub child_read_config
 			chomp $pattern; 
 			# commented for future use
 			# $conf{$ind}=[$pattern,{success_msg=>$resp[0],failure_msg=>$resp[1]}];
-			 logmsg $log,"DEBUG read pattern = ($pattern)\n";
+			 logmsg $log,"DEBUG read pattern = ($pattern)";
 			 
 			$conf{$ind}=$pattern;
 			$ind++;
