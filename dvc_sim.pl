@@ -75,22 +75,25 @@ sub main_process{
 	die "can't setup server" unless $server;
 	print "main: server is waiting for connection...\n";
 	my $main_command;
-	my $client=$server->accept();
-	print "main: got conection\n";
-	$client->autoflush(1);
-	my $cli_name= gethostbyaddr($client->peeraddr,AF_INET);
-	while ($main_command=<$client>){
-		$main_command=~s/$EOL//;
-		print "got command ($main_command) from $cli_name going to execute\n";
-		die "got QUIT command" if $main_command =~ /^QUIT/;
-		my $response=main_conversation($main_command);
-		if (defined($response)){
-			print $client $response,$EOL;
-			print "main: response : '$response'",$EOL;
-		}else {
-			print $client "UNRECOGNIZED","\n";
-			warn "main: command '$main_command' is UNRECOGNIZED"
+	my $client;
+	while ($client=$server->accept() ){
+		print "main: got conection\n";
+		$client->autoflush(1);
+		my $cli_name= gethostbyaddr($client->peeraddr,AF_INET);
+		while ($main_command=<$client>){
+			$main_command=~s/$EOL//;
+			print "got command ($main_command) from $cli_name going to execute\n";
+			die "got QUIT command" if $main_command =~ /^QUIT/;
+			my $response=main_conversation($main_command);
+			if (defined($response)){
+				print $client $response,$EOL;
+				print "main: response : '$response'",$EOL;
+			}else {
+				print $client "UNRECOGNIZED","\n";
+				warn "main: command '$main_command' is UNRECOGNIZED"
+			}
 		}
+	close $client;
 	}
 }
 sub main_conversation{
@@ -192,73 +195,45 @@ sub child_validate_command{
 	my $responses=$child_config->{1};
 	while (my ($ind,$pattern)=each %$child_config){
 		next if $ind==1;
-		$resp=$responses->[1]->{success_msg} , last if $command =~ /$pattern/;
+		$resp=$responses->{success_msg} , last if $command =~ /$pattern/;
 	}
 	return $resp;
 }
 
-sub child_process_server{
+sub child_main_body{
 
 	my $port=shift || die "child did'nt get port number";
 	my $config=shift || die "child didn't get config-hash";
 
 	my $log=shift || return -1;
-	my $errlog = shift | return -2;
+	my $errlog = shift || return -2;
 	my $chld_server=IO::Socket::INET->new(Proto=>'tcp',
 								  LocalPort=>$port,
 								  Listen=>SOMAXCONN,
 								  Reuse=>1
 								 );
 	die "can't setup server" unless $chld_server;
-	logmsg $logfile, " server is waiting for connection...\n";
+	logmsg $log, " server is waiting for connection...\n";
 	my $command;
-	my $chld_client=$chld_server->accept();
-	print "main: got conection\n";
-	$chld_client->autoflush(1);
-	my $cli_name= gethostbyaddr($chld_client->peeraddr,AF_INET);
-	while (1){
-		my $chld_command=<i$chld__client>;
-		$chld_command=~s/$EOL//;
-		logmsg $log, "got command ($chld_command) from $cli_name going to execute\n";
-		my $response=child_validate_command($chld_command);
-		print $chld_client $response,$EOL;
-		logmsg $log "$server_name: response : '$response'",$EOL;
+	my $chld_client;
+	while ($chld_client=$chld_server->accept()){
+		logmsg $log, "got conection\n";
+		$chld_client->autoflush(1);
+		my $cli_name= gethostbyaddr($chld_client->peeraddr,AF_INET);
+		my $chld_command;
+		while ($chld_command=<$chld_client>){
+			$chld_command=~s/$EOL//;
+			logmsg $log, "got command ($chld_command) from $cli_name going to execute\n";
+			print $server_name, " got command ($chld_command) from $cli_name going to execute\n";
+			my $response=child_validate_command($chld_command,$config);
+			print $chld_client $response,$EOL;
+			logmsg $log, "$server_name: response : '$response'",$EOL;
+		}
+		close $chld_client;
 	}
 }
-sub child_main_body_old{
-	my $port=shift || die "child did'nt get port number";
-	my $config=shift || die "child didn't get config-hash";
 
-	my $log=shift || return -1;
-	my $errlog = shift | return -2;
-	
-	my $proto=getprotobyname('tcp');
-
-	socket(Server, PF_INET, SOCK_STREAM, $proto)					|| die "socket: $!";
-	setsockopt(Server, SOL_SOCKET, SO_REUSEADDR, pack("l", 1)) 		|| die "setsockopt: $!";
-	bind(Server, sockaddr_in($port, INADDR_ANY))					|| die "bind: $!";
-	listen(Server,SOMAXCONN) 										|| die "listen: $!";
-	#after port is opened and binded - print debug message
-	logmsg $log, "Child server started at $port";
-	
-	my $paddr;
-	for ( ; $paddr = accept(Client,Server); close Client) {
-		my($port,$iaddr) = sockaddr_in($paddr);
-		my $name = gethostbyaddr($iaddr,AF_INET);
-		logmsg $log, "received connection from $name\n";
-		my $command=join "", <Client>;
-		logmsg $log, "command received:[$command]\n";
-		my $resp=child_validate_command($command,$config);
-		logmsg $log, "response after validation:[$resp]\n";
-		print Client $resp;
-	}
-
-
-	return 0;
-}
-
-
-sub child_process_server_old
+sub child_process_server
 {
 	my $server=shift;
 	my $server_data=shift;
@@ -276,7 +251,8 @@ sub child_process_server_old
 
 	open ($logfile, ">", $log_filename) or die "Cann't open logfile $log_filename $!";
 	open ($errlog_file, ">", $errlog_filename) or die "Cann't open err log file $errlog_filename $!";
-	logmsg $logfile, "[$server] started...";
+	$|=1;
+	logmsg $logfile, " started...";
 	if (!defined ($server) || !defined($server_data)) {
 		print STDERR "not defined server or server_data\n Exiting";
 		close STDOUT;
@@ -287,9 +263,11 @@ sub child_process_server_old
 	$SIG{QUIT}=\&child_sigquit; # will raise an exit from child process
 	# execute reading of configuration for child
 	my $chld_conf=child_read_config($server_data->{ConfigFile},$logfile,$errlog_file);
+	logmsg $logfile, "config has ",scalar keys %$chld_conf," elements";
 	#execute a main body of child server
-	child_main_body($server_data->{portID},$chld_conf,$logfile,$errlog_file);
-		
+	my $status=child_main_body($server_data->{portID},$chld_conf,$logfile,$errlog_file);
+	logmsg $status<0 ? $errlog_file :$logfile ,"child main body returned status - $status";
+	
 	close $logfile;
 	close $errlog_file;
 }
