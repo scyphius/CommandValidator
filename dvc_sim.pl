@@ -30,10 +30,11 @@ my $main_errlog_name="main_err_$now_string.log";
 #open $errlog_file,">",$main_errlog_name ||  die "can not open error log file for main process $!";
 
 
-$servers=read_main_config($i_configfile);
+$servers=main_read_config($i_configfile);
 die "No servers found in config" if !defined($servers) || scalar(keys %$servers)<1;
 
 
+$SIG{INT}=\&parent_got_message;
 for my $child_server (keys %$servers){
 	my $child_pid;
 	if (!defined($child_pid=fork)){
@@ -41,9 +42,8 @@ for my $child_server (keys %$servers){
 		next;
 	}
 	if ($child_pid){
-		$SIG{INT}=\&parent_got_message;
 		$servers->{$child_server}->{pid}=$child_pid;
-		main_print_server($child_server,$servers->{$child_server});
+		print "Stored data for $child_server\n",main_print_server($child_server,$servers->{$child_server});
 		print "main $child_server has been started\n" ;
 	}else{ # in child forked process.
 		child_process_server($child_server,$servers->{$child_server});
@@ -53,11 +53,26 @@ for my $child_server (keys %$servers){
 main_process($i_port);
 
 
+sub main_run_child_server{
+	my $server_name=shift || return -1;
+
+}
+
 sub logmsg
 {
 	my $file_handler=shift ||return; 
 	print $file_handler "Server $server_name,msg '@_'\n";
 }
+sub main_sig_kill{
+	foreach (my $serv= keys %$servers){
+		print "main: pid is not defined for $serv\n",next if !defined($servers->{$serv}->{pid});
+		if ($servers->{$serv}->{pid}>0){
+			print "sending KILL to $serv with pid $servers->{$serv}->{pid}\n";
+			kill KILL => $servers->{$serv}->{pid} ;
+		}
+	}
+}
+
 # this process will be executed after starting all active child servers and will be awaiting for following commands:
 # LIST - will return list all running servers
 # LISTALL will return list of all configured servers
@@ -67,6 +82,7 @@ sub logmsg
 sub main_process{
 	my $main_port=shift||7000;
 	print "main: main_pocess start\n";
+	$SIG{KILL}=\&main_sig_kill;
 	my $server=IO::Socket::INET->new(Proto=>'tcp',
 								  LocalPort=>$main_port,
 								  Listen=>SOMAXCONN,
@@ -83,7 +99,6 @@ sub main_process{
 		while ($main_command=<$client>){
 			$main_command=~s/$EOL//;
 			print "got command ($main_command) from $cli_name going to execute\n";
-			die "got QUIT command" if $main_command =~ /^QUIT/;
 			my $response=main_conversation($main_command);
 			if (defined($response)){
 				print $client $response,$EOL;
@@ -100,14 +115,19 @@ sub main_conversation{
 	my $command=shift || return undef;
 	print "main_convrs: command ($command) received \n";
 	return "OLOLEH" if $command =~ /^HELLO/;
+	return parent_list_all_servers() if $command =~/LIST/;
 	
+	if ($command=~/QUIT/){
+		main_sig_kill();	
+		die "got QUIT command" ;
+	}
 
 	return undef; # default if unrecognized  command
 }
 sub parent_got_message
 {
 }
-sub read_main_config
+sub main_read_config
 {
 	my $config_file=shift || "main_config.dat";
 	my %config;
@@ -121,7 +141,7 @@ sub read_main_config
 		#log("device $config_arr[0] is duplicated"),next if exists($config{$config_arr[0]});
 		print "Read device $_\n";
 		print "device $config_arr[0] is duplicated\n",next if exists($config{$config_arr[0]});
-		$config{$config_arr[0]}={'ConfigFile'=>$config_arr[1],'portID'=>$config_arr[2],'Status'=>$config_arr[3]};
+		$config{$config_arr[0]}={'ConfigFile'=>$config_arr[1],'portID'=>$config_arr[2],'Status'=>$config_arr[3],pid=>0};
 	}
 	return \%config;
 }
@@ -133,21 +153,23 @@ sub read_main_config
 sub parent_list_all_servers
 { 
 	my $type=shift || 0;
-	my $servers=shift;
-	for (my ($servId,$data)=each (%$servers))
+	my $resp="";
+	while (my ($servId,$data)=each (%$servers))
 	{
-		print "Serv-($servId),Config-($data->{ConfigFile}),portID-($data->{protID}),Status-($data->{Status})\n" 
-				if ($data->{status}==$type || $type ==0);
+		$resp.= "Serv-($servId):Config-($data->{ConfigFile}),portID-($data->{portID}),Status-($data->{Status}),pid=($data->{pid})\n" 
+				if ($data->{status} eq $type || $type ==0);
 	}
+	print $resp;
+	return $resp;
 }
 sub main_print_server{
 	my $server_name=shift || exit;
 	my $server_data=shift || exit;
-
-	print "stored data for $server_name:\n";
+	my $resp="Server $server_name:";
 	for my $param (keys %$server_data){
-		print "\t$param-->$server_data->{$param}\n";
+		 $resp.="\t$param-->$server_data->{$param}\n";
 	}
+	return $resp
 }
 sub child_sigint
 {
