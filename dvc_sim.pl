@@ -18,6 +18,7 @@ my $i_configfile=shift @ARGV || 'config_file.dat';
 print "main: begin i_port=$i_port i_config_file=$i_configfile\n";
 my $fh; #file handler for output
 
+my $server_name;
 
 my $servers={};
 
@@ -55,7 +56,7 @@ main_process($i_port);
 sub logmsg
 {
 	my $file_handler=shift ||return; 
-	print $file_handler "Pid=[$$],msg '@_'\n";
+	print $file_handler "Server $server_name,msg '@_'\n";
 }
 # this process will be executed after starting all active child servers and will be awaiting for following commands:
 # LIST - will return list all running servers
@@ -196,7 +197,35 @@ sub child_validate_command{
 	return $resp;
 }
 
-sub child_main_body{
+sub child_process_server{
+
+	my $port=shift || die "child did'nt get port number";
+	my $config=shift || die "child didn't get config-hash";
+
+	my $log=shift || return -1;
+	my $errlog = shift | return -2;
+	my $chld_server=IO::Socket::INET->new(Proto=>'tcp',
+								  LocalPort=>$port,
+								  Listen=>SOMAXCONN,
+								  Reuse=>1
+								 );
+	die "can't setup server" unless $chld_server;
+	logmsg $logfile, " server is waiting for connection...\n";
+	my $command;
+	my $chld_client=$chld_server->accept();
+	print "main: got conection\n";
+	$chld_client->autoflush(1);
+	my $cli_name= gethostbyaddr($chld_client->peeraddr,AF_INET);
+	while (1){
+		my $chld_command=<i$chld__client>;
+		$chld_command=~s/$EOL//;
+		logmsg $log, "got command ($chld_command) from $cli_name going to execute\n";
+		my $response=child_validate_command($chld_command);
+		print $chld_client $response,$EOL;
+		logmsg $log "$server_name: response : '$response'",$EOL;
+	}
+}
+sub child_main_body_old{
 	my $port=shift || die "child did'nt get port number";
 	my $config=shift || die "child didn't get config-hash";
 
@@ -229,13 +258,15 @@ sub child_main_body{
 }
 
 
-sub child_process_server
+sub child_process_server_old
 {
 	my $server=shift;
 	my $server_data=shift;
 
 	my $logfile;
 	my $errlog_file;
+
+	$server_name=$server; #for logmsg
 
 	my $log_filename="chld_$server.$now_string.log";
 	my $errlog_filename="chld_err_$server.$now_string.log";
