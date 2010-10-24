@@ -8,10 +8,14 @@ use strict;
 use Socket; 
 use Sys::Hostname; 
 use POSIX qw(:sys_wait_h strftime); 
-#use LWP::Socket
+use IO::Socket;
+my $EOL = "\015\012";
+# $/ = "" - should remove all newline symbols friom strings
+# $/ = '\n';
 
 my $i_port=shift @ARGV || 7000;
 my $i_configfile=shift @ARGV || 'config_file.dat';
+print "main: begin i_port=$i_port i_config_file=$i_configfile\n";
 my $fh; #file handler for output
 
 
@@ -60,40 +64,39 @@ sub logmsg
 # STOP:srv_name - will stop mentioned server if it's running
 # QUIT - will stop all child servers and exit
 sub main_process{
-	my $main_port=shift;
-	
-	my $main_proto=getprotobyname('tcp');
-
-	socket(main_Server,PF_INET,SOCK_STREAM,$main_proto)				||die "main:socket: $!";
-	setsockopt(main_Server,SOL_SOCKET,SO_REUSEADDR,pack("l",1))	||die "main:setsockopt: $!";
-	bind (main_Server,sockaddr_in($main_port, INADDR_ANY))			||die "main:bind: $!";
-	listen(main_Server,SOMAXCONN)								||die "main:listen $!";
-
-	print "main server started at $main_port\n";
-
-	my $main_paddr;
-
-	for ( ; $main_paddr = accept(main_Client,main_Server); close main_Client) {
-		my($port,$iaddr) = sockaddr_in($main_paddr);
-		my $cli_name=gethostbyaddr($iaddr,AF_INET);
-		print "got connection from $cli_name\n";
-		my $main_command=<main_Client>;
-		#chomp $main_command;
-		print "got command ($main_command) from $cli_name. going to execute\n";
+	my $main_port=shift||7000;
+	print "main: main_pocess start\n";
+	my $server=IO::Socket::INET->new(Proto=>'tcp',
+								  LocalPort=>$main_port,
+								  Listen=>SOMAXCONN,
+								  Reuse=>1
+								 );
+	die "can't setup server" unless $server;
+	print "main: server is waiting for connection...\n";
+	my $main_command;
+	my $client=$server->accept();
+	print "main: got conection\n";
+	$client->autoflush(1);
+	my $cli_name= gethostbyaddr($client->peeraddr,AF_INET);
+	while ($main_command=<$client>){
+		$main_command=~s/$EOL//;
+		print "got command ($main_command) from $cli_name going to execute\n";
+		die "got QUIT command" if $main_command =~ /^QUIT/;
 		my $response=main_conversation($main_command);
 		if (defined($response)){
-			print main_Client $response ;
-			print "main: response : '$response'\n";
+			print $client $response,$EOL;
+			print "main: response : '$response'",$EOL;
 		}else {
-			print main_Client "UNRECOGNIZED";
+			print $client "UNRECOGNIZED","\n";
 			warn "main: command '$main_command' is UNRECOGNIZED"
 		}
 	}
-
 }
 sub main_conversation{
 	my $command=shift || return undef;
-	return 'OLLEH' if $command =~ /^HELLO$/;
+	print "main_convrs: command ($command) received \n";
+	return "OLOLEH" if $command =~ /^HELLO/;
+	
 
 	return undef; # default if unrecognized  command
 }
