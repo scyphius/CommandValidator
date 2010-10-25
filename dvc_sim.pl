@@ -10,31 +10,26 @@ use Sys::Hostname;
 use POSIX qw(:sys_wait_h strftime); 
 use IO::Socket;
 my $EOL = "\015\012";
-# $/ = "" - should remove all newline symbols friom strings
-# $/ = '\n';
 
 my $i_port=shift @ARGV || 7000;
 my $i_configfile=shift @ARGV || 'config_file.dat';
 print "main: begin i_port=$i_port i_config_file=$i_configfile\n";
-my $fh; #file handler for output
 
 my $server_name;
 
 my $servers={};
-
+ $|=1;
 #my $now_string = strftime "%a%b%e_%H%M%S%Y", localtime;
 my $now_string = strftime "%Y%m%e_%H%M%S", localtime;
 my $main_log_name="main_$now_string.log";
 my $main_errlog_name="main_err_$now_string.log";
-#open $logfile,">",$main_log_name ||  die "can not open log file for main process $!";
-#open $errlog_file,">",$main_errlog_name ||  die "can not open error log file for main process $!";
 
 
 $servers=main_read_config($i_configfile);
 die "No servers found in config" if !defined($servers) || scalar(keys %$servers)<1;
 
 
-$SIG{INT}=\&parent_got_message;
+#$SIG{INT}=\&parent_got_message;
 for my $child_server (keys %$servers){
 	my $child_pid;
 	if (!defined($child_pid=fork)){
@@ -60,15 +55,17 @@ sub main_run_child_server{
 
 sub logmsg
 {
-	my $file_handler=shift ||return; 
-	print $file_handler "Server $server_name,msg '@_'\n";
+	my $file_handler=shift ||return -1;
+	my $status=print $file_handler "Server $server_name,msg '@_'\n";
+#	print "logmsg status:$status\n";
+	return $status;
 }
 sub main_sig_kill{
 	foreach (my $serv= keys %$servers){
 		print "main: pid is not defined for $serv\n",next if !defined($servers->{$serv}->{pid});
 		if ($servers->{$serv}->{pid}>0){
 			print "sending KILL to $serv with pid $servers->{$serv}->{pid}\n";
-			kill KILL => $servers->{$serv}->{pid} ;
+			kill QUIT => $servers->{$serv}->{pid} ;
 		}
 	}
 }
@@ -157,7 +154,7 @@ sub parent_list_all_servers
 	while (my ($servId,$data)=each (%$servers))
 	{
 		$resp.= "Serv-($servId):Config-($data->{ConfigFile}),portID-($data->{portID}),Status-($data->{Status}),pid=($data->{pid})\n" 
-				if ($data->{status} eq $type || $type ==0);
+				if ($data->{status} eq 'OP' || $type ==0);
 	}
 	print $resp;
 	return $resp;
@@ -169,14 +166,15 @@ sub main_print_server{
 	for my $param (keys %$server_data){
 		 $resp.="\t$param-->$server_data->{$param}\n";
 	}
-	return $resp
+	return $resp;
 }
 sub child_sigint
 {
 }
-sub child_sigquit
-{
-
+sub child_sigquit{
+	my $log =shift;
+	logmsg $log, "QUIT signal is received. stopping...";
+	die;
 }
 
 # this function will be executedas separate children process - this will keep connection on $port
@@ -255,6 +253,7 @@ sub child_main_body{
 	}
 }
 
+
 sub child_process_server
 {
 	my $server=shift;
@@ -267,29 +266,30 @@ sub child_process_server
 
 	my $log_filename="chld_$server.$now_string.log";
 	my $errlog_filename="chld_err_$server.$now_string.log";
-	
-#	close $logfile if defined $logfile;
-#	close $errlog_file if defined $errlog_file;
+	my $status=0;	
 
 	open ($logfile, ">", $log_filename) or die "Cann't open logfile $log_filename $!";
+	open (STDOUT, ">", $log_filename."new") or die "Cann't open logfile $log_filename $!";
 	open ($errlog_file, ">", $errlog_filename) or die "Cann't open err log file $errlog_filename $!";
+	print  "$server_name: direct output vie print\n";
 	$|=1;
-	logmsg $logfile, " started...";
-	if (!defined ($server) || !defined($server_data)) {
-		print STDERR "not defined server or server_data\n Exiting";
-		close STDOUT;
-		close STDERR;
-		die  "not defined server or server_data";
-	}
-	$SIG{INT}=\&child_sigint; #will answe to parent with alive message
-	$SIG{QUIT}=\&child_sigquit; # will raise an exit from child process
+	print "$server_name: direct output 2 vie print\n";
+	print "$server_name - logname - $log_filename\n";
+	$status=logmsg $logfile, " started...";
+	print "logmsg $server_name status=$status\n";
+
+	#$SIG{QUIT}=\&child_sigquit($logfile); # will raise an exit from child process
 	# execute reading of configuration for child
 	my $chld_conf=child_read_config($server_data->{ConfigFile},$logfile,$errlog_file);
 	logmsg $logfile, "config has ",scalar keys %$chld_conf," elements";
+	#$SIG{INT}=\&child_sigint; #will answe to parent with alive message
+	#$SIG{QUIT}=sub {logmsg $logfile, "QUIT signal is received. stopping...";die;}; # will raise an exit from child process
 	#execute a main body of child server
-	my $status=child_main_body($server_data->{portID},$chld_conf,$logfile,$errlog_file);
+	logmsg $logfile, "Before executing child_main body...";
+	$status=child_main_body($server_data->{portID},$chld_conf,$logfile,$errlog_file);
 	logmsg $status<0 ? $errlog_file :$logfile ,"child main body returned status - $status";
 	
 	close $logfile;
+	
 	close $errlog_file;
 }
