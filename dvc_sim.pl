@@ -9,6 +9,10 @@ use Socket;
 use Sys::Hostname; 
 use POSIX qw(:sys_wait_h strftime); 
 use IO::Socket;
+
+#Die on INT or QUIT:
+use sigtrap qw(die INT QUIT);
+
 my $EOL = "\015\012";
 
 my $i_port=shift @ARGV || 7000;
@@ -71,7 +75,8 @@ sub logmsg
 	return $status;
 }
 sub main_sig_kill{
-	foreach (my $serv= keys %$servers){
+	foreach my $serv( keys %$servers){
+		print "main:SIG KILL child $serv  pid=",$servers->{$serv}->{pid},"\n" if defined($servers->{$serv}->{pid});
 		print "main: pid is not defined for $serv\n",next if !defined($servers->{$serv}->{pid});
 		if ($servers->{$serv}->{pid}>0){
 			print "sending KILL to $serv with pid $servers->{$serv}->{pid}\n";
@@ -280,7 +285,7 @@ sub child_process_server
 	$|=1;
 	$status=logmsg  " started...";
 
-	#$SIG{QUIT}=\&child_sigquit($logfile); # will raise an exit from child process
+	#$SIG{QUIT}=\&child_sigquit(); # will raise an exit from child process
 	# execute reading of configuration for child
 	my $chld_conf=child_read_config($server_data->{ConfigFile},$logfile,$errlog_file);
 	logmsg  "config has ",scalar keys %$chld_conf," elements";
