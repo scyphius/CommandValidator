@@ -31,18 +31,17 @@ die "No servers found in config" if !defined($servers) || scalar(keys %$servers)
 
 #$SIG{INT}=\&parent_got_message;
 for my $child_server (keys %$servers){
+
 	my $child_pid;
-	if (!defined($child_pid=fork)){
-		warn "main:cannot fork for $child_server";
-		next;
-	}
-	if ($child_pid){
+	$child_pid=main_run_child_server($child_server);
+	if ($child_pid>0){
 		$servers->{$child_server}->{pid}=$child_pid;
-		print "Stored data for $child_server\n",main_print_server($child_server,$servers->{$child_server});
+		print "Stored data for $child_server\n", main_print_server($child_server,$servers->{$child_server});
 		print "main $child_server has been started\n" ;
-	}else{ # in child forked process.
-		child_process_server($child_server,$servers->{$child_server});
-		exit();
+	}elsif ($child_pid<0){
+		warn "server_name was not sent to main_run_child_server... " if $child_pid==-1;
+		warn "server $child_server is already running" if $child_pid==-2;
+		warn "main:cannot fork for $child_server" if $child_pid==-3; 		
 	}
 }
 main_process($i_port);
@@ -50,13 +49,24 @@ main_process($i_port);
 
 sub main_run_child_server{
 	my $server_name=shift || return -1;
+	#check if child_server with server_name already running
+	return -2 if 	(defined ($servers->{$server_name}->{pid}) && $servers->{$server_name}->{pid}>0);
+	my $child_pid;
+	if (!defined($child_pid=fork)){
+		return -3;
+	}
+	if ($child_pid){
+		return $child_pid;
+	}else{ # in child forked process.
+		child_process_server($server_name,$servers->{$server_name});
+		die;
+	}
 
 }
 
 sub logmsg
 {
-	my $file_handler=shift ||return -1;
-	my $status=print $file_handler "Server $server_name,msg '@_'\n";
+	my $status=print "Server $server_name,msg '@_'\n";
 #	print "logmsg status:$status\n";
 	return $status;
 }
@@ -173,7 +183,7 @@ sub child_sigint
 }
 sub child_sigquit{
 	my $log =shift;
-	logmsg $log, "QUIT signal is received. stopping...";
+	logmsg  "QUIT signal is received. stopping...";
 	die;
 }
 
@@ -183,8 +193,6 @@ sub child_sigquit{
 sub child_read_config
 {
 	my $conf_file_name = shift || return -1;
-	my $log =shift || return -2;
-	my $errlog =shift || return -3;
 	my %conf; # this will have structure - ind->[pattern->{success_msg->"message for SUCCESS",failure_msg->"message for FAILURE}]
 	
 	if (-f $conf_file_name and open FILE ,'<', $conf_file_name){
@@ -198,7 +206,7 @@ sub child_read_config
 			chomp $pattern; 
 			# commented for future use
 			# $conf{$ind}=[$pattern,{success_msg=>$resp[0],failure_msg=>$resp[1]}];
-			 logmsg $log,"DEBUG read pattern = ($pattern)";
+			 logmsg "DEBUG read pattern = ($pattern)";
 			 
 			$conf{$ind}=$pattern;
 			$ind++;
@@ -225,29 +233,27 @@ sub child_main_body{
 	my $port=shift || die "child did'nt get port number";
 	my $config=shift || die "child didn't get config-hash";
 
-	my $log=shift || return -1;
-	my $errlog = shift || return -2;
 	my $chld_server=IO::Socket::INET->new(Proto=>'tcp',
 								  LocalPort=>$port,
 								  Listen=>SOMAXCONN,
 								  Reuse=>1
 								 );
 	die "can't setup server" unless $chld_server;
-	logmsg $log, " server is waiting for connection...\n";
+	logmsg  " server is waiting for connection...\n";
 	my $command;
 	my $chld_client;
 	while ($chld_client=$chld_server->accept()){
-		logmsg $log, "got conection\n";
+		logmsg  "got conection\n";
 		$chld_client->autoflush(1);
 		my $cli_name= gethostbyaddr($chld_client->peeraddr,AF_INET);
 		my $chld_command;
 		while ($chld_command=<$chld_client>){
 			$chld_command=~s/$EOL//;
-			logmsg $log, "got command ($chld_command) from $cli_name going to execute\n";
+			logmsg  "got command ($chld_command) from $cli_name going to execute\n";
 			print $server_name, " got command ($chld_command) from $cli_name going to execute\n";
 			my $response=child_validate_command($chld_command,$config);
 			print $chld_client $response,$EOL;
-			logmsg $log, "$server_name: response : '$response'",$EOL;
+			logmsg  "$server_name: response : '$response'",$EOL;
 		}
 		close $chld_client;
 	}
@@ -268,28 +274,21 @@ sub child_process_server
 	my $errlog_filename="chld_err_$server.$now_string.log";
 	my $status=0;	
 
-	open ($logfile, ">", $log_filename) or die "Cann't open logfile $log_filename $!";
-	open (STDOUT, ">", $log_filename."new") or die "Cann't open logfile $log_filename $!";
-	open ($errlog_file, ">", $errlog_filename) or die "Cann't open err log file $errlog_filename $!";
-	print  "$server_name: direct output vie print\n";
+	#open ($logfile, ">", $log_filename) or die "Cann't open logfile $log_filename $!";
+	open (STDOUT, ">", $log_filename) or die "Cann't open logfile $log_filename $!";
+	open (STDERR, ">", $errlog_filename) or die "Cann't open err log file $errlog_filename $!";
 	$|=1;
-	print "$server_name: direct output 2 vie print\n";
-	print "$server_name - logname - $log_filename\n";
-	$status=logmsg $logfile, " started...";
-	print "logmsg $server_name status=$status\n";
+	$status=logmsg  " started...";
 
 	#$SIG{QUIT}=\&child_sigquit($logfile); # will raise an exit from child process
 	# execute reading of configuration for child
 	my $chld_conf=child_read_config($server_data->{ConfigFile},$logfile,$errlog_file);
-	logmsg $logfile, "config has ",scalar keys %$chld_conf," elements";
+	logmsg  "config has ",scalar keys %$chld_conf," elements";
 	#$SIG{INT}=\&child_sigint; #will answe to parent with alive message
 	#$SIG{QUIT}=sub {logmsg $logfile, "QUIT signal is received. stopping...";die;}; # will raise an exit from child process
 	#execute a main body of child server
-	logmsg $logfile, "Before executing child_main body...";
+	logmsg  "Before executing child_main body...";
 	$status=child_main_body($server_data->{portID},$chld_conf,$logfile,$errlog_file);
-	logmsg $status<0 ? $errlog_file :$logfile ,"child main body returned status - $status";
+	logmsg "child main body returned status - $status";
 	
-	close $logfile;
-	
-	close $errlog_file;
 }
