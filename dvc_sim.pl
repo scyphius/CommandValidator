@@ -95,6 +95,7 @@ sub main_process{
 	my $main_port=shift||7000;
 	print "main: main_pocess start\n";
 	$SIG{KILL}=\&main_sig_kill;
+	$SIG{CHLD} = \&main_REAPER;
 	my $server=IO::Socket::INET->new(Proto=>'tcp',
 								  LocalPort=>$main_port,
 								  Listen=>SOMAXCONN,
@@ -122,6 +123,21 @@ sub main_process{
 		}
 	close $client;
 	}
+}
+sub main_REAPER{
+	my $child_pid;
+	my $srv;
+	while (($child_pid = waitpid(-1,WNOHANG)) > 0) {
+		for $srv (keys %$servers){
+			if (defined($servers->{$srv}->{pid}) && $servers->{$srv}->{pid}==$child_pid){
+				$servers->{$srv}->{pid}=0;
+				$servers->{$srv}->{Status}='BL';
+				print "main: REAPED $srv on pid $child_pid\n";
+			}
+		}
+	}
+	$SIG{CHLD} = \&main_REAPER;
+
 }
 sub main_conversation{
 	my $command=shift || return undef;
