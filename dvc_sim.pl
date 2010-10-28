@@ -5,12 +5,14 @@
 # 	param1 - port number
 # 	param2 - file name with response.
 use strict; 
+use warnings;
 use Socket; 
 use Sys::Hostname; 
 use POSIX qw(:sys_wait_h strftime); 
 use IO::Socket;
 
 #Die on INT or QUIT:
+#use sigtrap qw(die INT QUIT);
 use sigtrap qw(die INT QUIT);
 
 my $EOL = "\015\012";
@@ -70,7 +72,7 @@ sub main_run_child_server{
 
 sub logmsg
 {
-	my $status=print "Server $server_name,msg '@_'\n";
+	my $status=print "$server_name: @_\n";
 #	print "logmsg status:$status\n";
 	return $status;
 }
@@ -128,6 +130,7 @@ sub main_REAPER{
 	my $child_pid;
 	my $srv;
 	while (($child_pid = waitpid(-1,WNOHANG)) > 0) {
+		print "REAPER : $child_pid \n";
 		for $srv (keys %$servers){
 			if (defined($servers->{$srv}->{pid}) && $servers->{$srv}->{pid}==$child_pid){
 				$servers->{$srv}->{pid}=0;
@@ -165,6 +168,7 @@ sub main_read_config
 	while (<$config_fh>)
 	{
 		chomp;
+		next if /^#/;
 		my @config_arr=split /=>/; # here we split each row of config file as ServerID=>configfile => portID=>Status
 		#log("device $config_arr[0] is duplicated"),next if exists($config{$config_arr[0]});
 		print "Read device $_\n";
@@ -225,10 +229,11 @@ sub child_read_config
 		while (!eof(FILE)) { 
 			my $pattern=<FILE>;
 			chomp $pattern; 
+
 			# commented for future use
 			# $conf{$ind}=[$pattern,{success_msg=>$resp[0],failure_msg=>$resp[1]}];
-			 logmsg "DEBUG read pattern = ($pattern)";
-			 
+			next if($pattern =~ /^#/;
+			logmsg "DEBUG read pattern = ($pattern)";
 			$conf{$ind}=$pattern;
 			$ind++;
 		}
