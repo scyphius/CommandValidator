@@ -69,21 +69,26 @@ sub main_run_child_server{
 	}
 
 }
-
+sub main_kill_child_server{
+	my $serv=shift || return undef;
+	if ($servers->{$serv}->{pid}>0){
+		print "sending KILL to $serv with pid $servers->{$serv}->{pid}\n";
+		kill QUIT => $servers->{$serv}->{pid} ;
+	}
+	return 0;
+}
 sub logmsg
 {
 	my $status=print "$server_name: @_\n";
 #	print "logmsg status:$status\n";
 	return $status;
 }
+
 sub main_sig_kill{
 	foreach my $serv( keys %$servers){
 		print "main:SIG KILL child $serv  pid=",$servers->{$serv}->{pid},"\n" if defined($servers->{$serv}->{pid});
 		print "main: pid is not defined for $serv\n",next if !defined($servers->{$serv}->{pid});
-		if ($servers->{$serv}->{pid}>0){
-			print "sending KILL to $serv with pid $servers->{$serv}->{pid}\n";
-			kill QUIT => $servers->{$serv}->{pid} ;
-		}
+		main_kill_child_server($serv);
 	}
 }
 
@@ -140,6 +145,7 @@ sub main_REAPER{
 		}
 	}
 	$SIG{CHLD} = \&main_REAPER;
+	print "REAPER: before exit\n";
 
 }
 sub main_conversation{
@@ -151,6 +157,15 @@ sub main_conversation{
 	if ($command=~/QUIT/){
 		main_sig_kill();	
 		die "got QUIT command" ;
+	}
+	if ($command =~ /STOP ([\w\d]+)$/){
+		print "main: got '$command'. Server name '$1'.\n";
+		my $srv=$1;
+		if (defined($srv) && defined($servers->{$srv}) && defined($servers->{$srv}->{pid}) && $servers->{$srv}->{Status} eq 'OP'  ){
+			print "main: Server '$1' is up. Sending KILL signal...\n";
+			main_kill_child_server($srv);
+			return 'STOOPED';
+		}
 	}
 
 	return undef; # default if unrecognized  command
@@ -189,7 +204,7 @@ sub parent_list_all_servers
 	while (my ($servId,$data)=each (%$servers))
 	{
 		$resp.= "Serv-($servId):Config-($data->{ConfigFile}),portID-($data->{portID}),Status-($data->{Status}),pid=($data->{pid})\n" 
-				if ($data->{status} eq 'OP' || $type ==0);
+				if ($data->{Status} eq 'OP' || $type ==0);
 	}
 	print $resp;
 	return $resp;
@@ -232,7 +247,7 @@ sub child_read_config
 
 			# commented for future use
 			# $conf{$ind}=[$pattern,{success_msg=>$resp[0],failure_msg=>$resp[1]}];
-			next if($pattern =~ /^#/;
+			next if($pattern =~ /^#/);
 			logmsg "DEBUG read pattern = ($pattern)";
 			$conf{$ind}=$pattern;
 			$ind++;
@@ -318,3 +333,12 @@ sub child_process_server
 	logmsg "child main body returned status - $status";
 	
 }
+
+
+=pod
+
+This script is expected to be used fo Syntax Validation using specially predefined rules. These rules should be described in config files.
+The initial program
+
+
+=cut
