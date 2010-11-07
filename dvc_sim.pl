@@ -26,7 +26,9 @@ my $server_name;
 my $servers={};
  $|=1;
 #my $now_string = strftime "%a%b%e_%H%M%S%Y", localtime;
-my $now_string = strftime "%Y%m%e_%H%M%S", localtime;
+my $day=strftime "%e",localtime;
+$day=~s/\s/0/;
+my $now_string = strftime "%Y%m$day:%H%M%S", localtime;
 my $main_log_name="main_$now_string.log";
 my $main_errlog_name="main_err_$now_string.log";
 
@@ -100,7 +102,7 @@ sub main_sig_kill{
 # QUIT - will stop all child servers and exit
 sub main_process{
 	my $main_port=shift||7000;
-	print "main: main_pocess start\n";
+	print "main: main_process start\n";
 	$SIG{KILL}=\&main_sig_kill;
 	$SIG{CHLD} = \&main_REAPER;
 	my $server=IO::Socket::INET->new(Proto=>'tcp',
