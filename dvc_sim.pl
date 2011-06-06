@@ -28,7 +28,7 @@ my $servers={};
 #my $now_string = strftime "%a%b%e_%H%M%S%Y", localtime;
 my $day=strftime "%e",localtime;
 $day=~s/\s/0/;
-my $now_string = strftime "%Y%m$day:%H%M%S", localtime;
+my $now_string = strftime "%Y%m$day\_%H%M%S", localtime;
 my $main_log_name="main_$now_string.log";
 my $main_errlog_name="main_err_$now_string.log";
 
@@ -264,9 +264,16 @@ sub child_validate_command{
 	my $child_config=shift;
 	my $resp='FAILURE';
 	my $responses=$child_config->{1};
-	while (my ($ind,$pattern)=each %$child_config){
+	#while (my ($ind,$pattern)=each %$child_config){
+	foreach my $ind (keys %$child_config){
 		next if $ind==1;
-		$resp=$responses->{success_msg} , last if $command =~ /$pattern/;
+		my $pattern=$child_config->{$ind};
+		logmsg "Comparing input '$command' with pattern '$pattern'";
+		if ($command =~ /$pattern/){
+			$resp=$responses->{success_msg};
+			logmsg "Successfull input '$command' with pattern '$pattern'";
+			last;
+		}
 	}
 	return $resp;
 }
