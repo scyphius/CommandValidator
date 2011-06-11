@@ -4,21 +4,44 @@
 # usage perl fork_server.pl param1 param2
 # 	param1 - port number
 # 	param2 - file name with response.
+#
+#
+#Change 1. for using long parameter names instead of ARGV
 use strict; 
 use warnings;
 use Socket; 
 use Sys::Hostname; 
 use POSIX qw(:sys_wait_h strftime); 
 use IO::Socket;
+use Getopt::Long;
 
 #Die on INT or QUIT:
 #use sigtrap qw(die INT QUIT);
 use sigtrap qw(die INT QUIT);
 
 my $EOL = "\015\012";
+#Change 1. i_port and i_configfile will be received via long param names
+#my $i_port=shift @ARGV || 7000;
+#my $i_configfile=shift @ARGV || 'config_file.dat';
+my $i_port=7000;
+my $i_configfile='config_file.dat';
+my $help=0;
 
-my $i_port=shift @ARGV || 7000;
-my $i_configfile=shift @ARGV || 'config_file.dat';
+GetOptions ('help'=>\$help,
+			'port=i'=>\$i_port,
+			'config=s'=>\$i_configfile);
+if($help){
+	print 'This is server for getting connections, receive messages and sending responses.
+
+		perl dvc_sim.pl --help --port=<port num> --config=<config filename>
+
+		--help - shows this help message
+		--port - will set port number. DEfault is 7000;
+		--config - file name where config is stored. default config_file.dat
+';
+	exit(0);
+}
+
 print "main: begin i_port=$i_port i_config_file=$i_configfile\n";
 
 my $server_name;
@@ -282,7 +305,6 @@ sub child_main_body{
 
 	my $port=shift || die "child did'nt get port number";
 	my $config=shift || die "child didn't get config-hash";
-
 	my $chld_server=IO::Socket::INET->new(Proto=>'tcp',
 								  LocalPort=>$port,
 								  Listen=>SOMAXCONN,
